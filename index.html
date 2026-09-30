@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spinner</title>
+<style>
+  :root { --bg:#14161f; --card:#1e2130; --line:#2c3046; --text:#eef0f8; --muted:#8b90a8; --accent:#ffb020; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  body { min-height:100vh; display:flex; flex-direction:column; align-items:center; padding:16px 14px 32px; gap:14px; }
+  h1 { margin:0; font-size:1.4rem; letter-spacing:.5px; }
+  #stage { position:relative; width:min(92vw,420px); aspect-ratio:1; }
+  #wheel { width:100%; height:100%; display:block; }
+  #pointer { position:absolute; top:-6px; left:50%; transform:translateX(-50%); width:0; height:0;
+    border-left:14px solid transparent; border-right:14px solid transparent; border-top:28px solid var(--accent);
+    filter:drop-shadow(0 2px 3px rgba(0,0,0,.6)); pointer-events:none; }
+  #spin { position:absolute; top:50%; left:50%; width:22%; height:22%; transform:translate(-50%,-50%); border-radius:50%;
+    border:4px solid var(--bg); background:var(--accent); color:#1a1300; font-weight:800; font-size:clamp(.8rem,3.4vw,1.05rem);
+    cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+  #spin:disabled { background:#555a70; color:#999eb5; cursor:not-allowed; }
+  #result { min-height:2.2rem; font-size:1.5rem; font-weight:800; text-align:center; color:var(--accent); word-break:break-word; max-width:92vw; }
+  .panel { width:min(92vw,420px); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .row { display:flex; gap:8px; }
+  input { flex:1; min-width:0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:1rem; }
+  input:focus { outline:2px solid var(--accent); border-color:transparent; }
+  button.btn { padding:10px 16px; border-radius:8px; border:0; background:var(--accent); color:#1a1300; font-weight:700; font-size:1rem; cursor:pointer; }
+  button.btn:disabled { opacity:.5; cursor:not-allowed; }
+  #list { list-style:none; margin:12px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  #list li { display:flex; align-items:center; gap:10px; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:6px 6px 6px 10px; }
+  #list .dot { width:12px; height:12px; border-radius:50%; flex:none; }
+  #list .name { flex:1; min-width:0; overflow-wrap:anywhere; }
+  #list button { border:0; background:transparent; color:var(--muted); font-size:1.2rem; cursor:pointer; padding:2px 10px; }
+  #list button:hover { color:#ff6b6b; }
+  #foot { display:flex; justify-content:space-between; align-items:center; margin-top:10px; color:var(--muted); font-size:.85rem; }
+  #clear { background:none; border:0; color:var(--muted); text-decoration:underline; cursor:pointer; font-size:.85rem; }
+</style>
+</head>
+<body>
+<h1>🎡 Spinner</h1>
+<div id="stage">
+  <canvas id="wheel"></canvas>
+  <div id="pointer"></div>
+  <button id="spin">SPIN</button>
+</div>
+<div id="result" aria-live="polite"></div>
+<div class="panel">
+  <div class="row">
+    <input id="txt" type="text" placeholder="Type a choice…" maxlength="60" autocomplete="off" enterkeyhint="done">
+    <button class="btn" id="add">Add</button>
+  </div>
+  <ul id="list"></ul>
+  <div id="foot"><span id="count"></span><button id="clear">Clear all</button></div>
+</div>
+<script>
+const COLORS = ['#e94f64','#f59e0b','#22b8a0','#4c8df6','#a56cf0','#f06fb0','#7cc242','#f0783c','#3fb6e8','#c9a227'];
+const STORE = 'spinner_options';
+let options = [];
+try { const s = JSON.parse(localStorage.getItem(STORE) || '[]'); if (Array.isArray(s)) options = s.filter(x => typeof x === 'string').slice(0, 50); } catch (e) {}
+let rot = 0, spinning = false;
+
+const cv = document.getElementById('wheel'), ctx = cv.getContext('2d');
+const txt = document.getElementById('txt'), listEl = document.getElementById('list');
+const spinBtn = document.getElementById('spin'), resultEl = document.getElementById('result');
+const TAU = Math.PI * 2;
+const mod = (a, n) => ((a % n) + n) % n;
+const color = i => COLORS[i % COLORS.length];
+
+function save() { try { localStorage.setItem(STORE, JSON.stringify(options)); } catch (e) {} }
+
+function draw() {
+  const dpr = window.devicePixelRatio || 1;
+  const size = cv.clientWidth;
+  if (!size) return;
+  if (cv.width !== Math.round(size * dpr)) { cv.width = cv.height = Math.round(size * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+  const c = size / 2, r = c - 6, n = options.length;
+  ctx.save(); ctx.translate(c, c);
+  if (n === 0) {
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fillStyle = '#2a2e45'; ctx.fill();
+    ctx.fillStyle = '#8b90a8'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '600 ' + Math.round(size * 0.05) + 'px sans-serif';
+    ctx.fillText('Add choices below', 0, -size * 0.2);
+  } else {
+    const seg = TAU / n;
+    for (let i = 0; i < n; i++) {
+      const a0 = rot + i * seg, a1 = a0 + seg;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, r, a0, a1); ctx.closePath();
+      ctx.fillStyle = color(i); ctx.fill();
+      if (n > 1) { ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1; ctx.stroke(); }
+      ctx.save(); ctx.rotate(a0 + seg / 2);
+      ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff';
+      const fs = Math.max(10, Math.min(size * 0.06, r * seg * 0.45, 26));
+      ctx.font = '700 ' + fs + 'px sans-serif';
+      ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 3;
+      let t = options[i]; const maxW = r * 0.68;
+      if (ctx.measureText(t).width > maxW) {
+        while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+        t += '…';
+      }
+      ctx.fillText(t, r - 14, 0);
+      ctx.restore();
+    }
+  }
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.strokeStyle = '#0d0f17'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.restore();
+}
+
+function renderList() {
+  listEl.innerHTML = '';
+  options.forEach((o, i) => {
+    const li = document.createElement('li');
+    const d = document.createElement('span'); d.className = 'dot'; d.style.background = color(i);
+    const nm = document.createElement('span'); nm.className = 'name'; nm.textContent = o;
+    const b = document.createElement('button'); b.textContent = '✕'; b.setAttribute('aria-label', 'Remove ' + o);
+    b.addEventListener('click', () => removeAt(i));
+    li.append(d, nm, b); listEl.appendChild(li);
+  });
+  document.getElementById('count').textContent = options.length + (options.length === 1 ? ' choice' : ' choices');
+  document.getElementById('clear').style.visibility = options.length ? 'visible' : 'hidden';
+  spinBtn.disabled = spinning || options.length < 2;
+  document.getElementById('add').disabled = spinning;
+}
+
+function addOption() {
+  const v = txt.value.trim();
+  if (!v || spinning) return;
+  if (options.length >= 50) { resultEl.textContent = 'Max 50 choices'; return; }
+  options.push(v); txt.value = ''; resultEl.textContent = '';
+  save(); renderList(); draw(); txt.focus();
+}
+function removeAt(i) {
+  if (spinning) return;
+  options.splice(i, 1); resultEl.textContent = '';
+  save(); renderList(); draw();
+}
+
+function spin() {
+  const n = options.length;
+  if (spinning || n < 2) return;
+  spinning = true; resultEl.textContent = ''; renderList();
+  const seg = TAU / n;
+  const win = Math.floor(Math.random() * n);
+  const f = 0.1 + Math.random() * 0.8;
+  // pointer is at -PI/2; the wheel-relative angle there is (-PI/2 - rot); it must equal (win+f)*seg
+  const target = mod(-Math.PI / 2 - (win + f) * seg, TAU);
+  const delta = mod(target - rot, TAU) + TAU * (5 + Math.floor(Math.random() * 3));
+  const start = rot, dur = 4500 + Math.random() * 1000, t0 = performance.now();
+  (function frame(now) {
+    const p = Math.min(1, (now - t0) / dur);
+    const e = 1 - Math.pow(1 - p, 4);
+    rot = start + delta * e;
+    draw();
+    if (p < 1) { requestAnimationFrame(frame); return; }
+    rot = mod(rot, TAU); spinning = false; draw(); renderList();
+    resultEl.textContent = '🎉 ' + options[win];
+  })(t0);
+}
+
+document.getElementById('add').addEventListener('click', addOption);
+txt.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } });
+spinBtn.addEventListener('click', spin);
+document.getElementById('clear').addEventListener('click', () => {
+  if (spinning || !options.length) return;
+  options = []; resultEl.textContent = ''; save(); renderList(); draw();
+});
+window.addEventListener('resize', draw);
+renderList(); draw();
+</script>
+</body>
+</html>
