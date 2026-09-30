@@ -17,8 +17,9 @@
     filter:drop-shadow(0 2px 3px rgba(0,0,0,.6)); pointer-events:none; }
   #spin { position:absolute; top:50%; left:50%; width:22%; height:22%; transform:translate(-50%,-50%); border-radius:50%;
     border:4px solid var(--bg); background:var(--accent); color:#1a1300; font-weight:800; font-size:clamp(.8rem,3.4vw,1.05rem);
-    cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); }
+    cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.5); touch-action:none; user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; }
   #spin:disabled { background:#555a70; color:#999eb5; cursor:not-allowed; }
+  #hint { color:var(--muted); font-size:.8rem; margin-top:-8px; }
   #result { min-height:2.2rem; font-size:1.5rem; font-weight:800; text-align:center; color:var(--accent); word-break:break-word; max-width:92vw; }
   .panel { width:min(92vw,420px); background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
   .row { display:flex; gap:8px; }
@@ -44,6 +45,7 @@
   <button id="spin">SPIN</button>
 </div>
 <div id="result" aria-live="polite"></div>
+<div id="hint">Hold SPIN to charge — longer hold = faster spin</div>
 <div class="panel">
   <div class="row">
     <input id="txt" type="text" placeholder="Type a choice…" maxlength="60" autocomplete="off" enterkeyhint="done">
@@ -136,7 +138,7 @@ function removeAt(i) {
   save(); renderList(); draw();
 }
 
-function spin() {
+function spin(power) {
   const n = options.length;
   if (spinning || n < 2) return;
   spinning = true; resultEl.textContent = ''; renderList();
@@ -145,8 +147,8 @@ function spin() {
   const f = 0.1 + Math.random() * 0.8;
   // pointer is at -PI/2; the wheel-relative angle there is (-PI/2 - rot); it must equal (win+f)*seg
   const target = mod(-Math.PI / 2 - (win + f) * seg, TAU);
-  const delta = mod(target - rot, TAU) + TAU * (2 + Math.floor(Math.random() * 9));
-  const start = rot, dur = 2500 + Math.random() * 6500, pw = 2 + Math.random() * 4, t0 = performance.now();
+  const delta = mod(target - rot, TAU) + TAU * (2 + Math.round(power * 10));
+  const start = rot, dur = (2500 + power * 4500) * (0.9 + Math.random() * 0.2), pw = 3.5, t0 = performance.now();
   (function frame(now) {
     const p = Math.min(1, (now - t0) / dur);
     const e = 1 - Math.pow(1 - p, pw);
@@ -160,7 +162,33 @@ function spin() {
 
 document.getElementById('add').addEventListener('click', addOption);
 txt.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); addOption(); } });
-spinBtn.addEventListener('click', spin);
+const HOLD_MAX = 2000;
+let holdStart = null;
+function holdPower() { return Math.min(1, (performance.now() - holdStart) / HOLD_MAX); }
+function charge() {
+  if (holdStart === null) return;
+  spinBtn.style.background = 'conic-gradient(#fff ' + Math.round(holdPower() * 360) + 'deg, var(--accent) 0)';
+  requestAnimationFrame(charge);
+}
+function holdBegin() {
+  if (holdStart !== null || spinning || options.length < 2) return;
+  holdStart = performance.now(); charge();
+}
+function holdEnd(go) {
+  if (holdStart === null) return;
+  const p = holdPower(); holdStart = null; spinBtn.style.background = '';
+  if (go) spin(p);
+}
+spinBtn.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { spinBtn.setPointerCapture(e.pointerId); } catch (x) {}
+  holdBegin();
+});
+spinBtn.addEventListener('pointerup', () => holdEnd(true));
+spinBtn.addEventListener('pointercancel', () => holdEnd(false));
+spinBtn.addEventListener('contextmenu', e => e.preventDefault());
+spinBtn.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); holdBegin(); } });
+spinBtn.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') holdEnd(true); });
 document.getElementById('clear').addEventListener('click', () => {
   if (spinning || !options.length) return;
   options = []; resultEl.textContent = ''; save(); renderList(); draw();
