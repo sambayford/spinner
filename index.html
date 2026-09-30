@@ -145,11 +145,11 @@ function spin() {
   const f = 0.1 + Math.random() * 0.8;
   // pointer is at -PI/2; the wheel-relative angle there is (-PI/2 - rot); it must equal (win+f)*seg
   const target = mod(-Math.PI / 2 - (win + f) * seg, TAU);
-  const delta = mod(target - rot, TAU) + TAU * (5 + Math.floor(Math.random() * 3));
-  const start = rot, dur = 4500 + Math.random() * 1000, t0 = performance.now();
+  const delta = mod(target - rot, TAU) + TAU * (2 + Math.floor(Math.random() * 9));
+  const start = rot, dur = 2500 + Math.random() * 6500, pw = 2 + Math.random() * 4, t0 = performance.now();
   (function frame(now) {
     const p = Math.min(1, (now - t0) / dur);
-    const e = 1 - Math.pow(1 - p, 4);
+    const e = 1 - Math.pow(1 - p, pw);
     rot = start + delta * e;
     draw();
     if (p < 1) { requestAnimationFrame(frame); return; }
